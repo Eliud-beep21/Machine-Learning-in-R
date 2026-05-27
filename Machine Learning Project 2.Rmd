@@ -1,0 +1,392 @@
+---
+title: "'Multi-Model Classification for CVD Prediction"
+author: "Eliud Mule"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set Working Directory
+```{r}
+#setwd("C:/Users/ADMIN/OneDrive/Desktop/Eliud/R")
+```
+
+
+
+## **Task 1 : Data Import and Exploration
+
+### **Load required libraries**
+```{r}
+library(tidyverse)      # Data Manipulation
+library(caret)          # Unified ML Interface
+library(pROC)           # ROC Analysis
+library(e1071)          # SVM
+library(class)          # KNN
+library(randomForest)    # Random Forest
+library(psych)
+```
+
+### **Import the dataset**
+```{r}
+data <- read.csv("medical_data.csv")
+head(data)
+```
+
+
+### **Explore the dataset
+```{r}
+str(data)
+describe(data)
+```
+
+
+### **Check for missing values**
+```{r}
+# Count missing values per column
+missing_count <- colSums(is.na(data))
+missing_count
+
+```
+```{r}
+
+# Percentage of missing values
+missing_percent <- (missing_count / nrow(data)) * 100
+missing_percent
+
+```
+
+
+### **Visualize the distribution of the target variable CVD**
+```{r}
+ggplot(data, aes(x = CVD,fill = CVD)) +
+  geom_bar(color = "black") +
+  labs(title = "Distribution of CVD", x = "CVD Status", y = "Count") +
+  theme_minimal()
+```
+
+
+### **Class Imbalance Ratio**
+```{r}
+# Count each class
+class_counts <- table(data$CVD)
+
+# Display counts
+class_counts
+
+# Calculate ratio
+imbalance_ratio <- max(class_counts) / min(class_counts)
+
+imbalance_ratio
+```
+
+## **Task 2 : Data Preprocessing**
+### **Convert categorical variables to factors**
+```{r}
+data$gender <- as.factor(data$gender)
+data$smoking <- as.factor(data$smoking)
+data$alcohol <- as.factor(data$alcohol)
+data$urban_residence <- as.factor(data$urban_residence)
+data$family_history <- as.factor(data$family_history)
+data$medication_adherence <- as.factor(data$medication_adherence)
+```
+
+
+
+
+
+## **Task 3 : Data Partitioning**
+### **Split the dataset into training and testing sets**
+```{r}
+set.seed(2026)
+train_index <- createDataPartition(data$CVD, p = 0.7, list = FALSE)
+train_data <- data[train_index, ]
+test_data <- data[-train_index, ]
+```
+
+
+```{r}
+# Verify class distribution
+cat("Training Set:\n")
+print(table(train_data$CVD))
+prop.table(table(train_data$CVD))
+cat("\nTesting Set:\n")
+print(table(test_data$CVD)) 
+prop.table(table(test_data$CVD))
+```
+
+
+```{r}
+preproc <- preProcess(train_data[, sapply(train_data, is.numeric)],
+                      method = c("center", "scale"))
+
+train_scaled <- predict(preproc, train_data)
+test_scaled  <- predict(preproc, test_data)
+```
+
+
+## **Task 4 : Train Control Scheme**
+```{r}
+ctrl <- trainControl(
+  method = "cv",              # 10-fold cross-validation
+  number = 10,               # number of folds
+  savePredictions = "final", # save predictions
+  classProbs = TRUE,         # enable probabilities
+  summaryFunction = twoClassSummary, # ROC, Sensitivity, Specificity
+  verboseIter = FALSE        # suppress output
+)
+```
+
+
+> Report :Cross-validation is used to evaluate model performance in a more reliable and robust manner. Instead of relying on a single train-test split, the data is divided into multiple folds, and the model is trained and validated across different subsets.
+This reduces the risk of overfitting and ensures that the model generalizes well to unseen data.
+The use of 10-fold cross-validation provides a good balance between computational efficiency and reliable performance estimation.
+
+
+## **Task 5 :Model Training _ Logistic Regression**
+```{r}
+# Train Logistic Regression
+log_model <- train(
+  CVD ~.,
+  data = train_data,
+  method = "glm",
+  family = binomial,
+  trControl = ctrl
+)
+```
+
+
+
+```{r}
+# view results usingtab_model
+library(sjPlot)
+tab_model(log_model$finalModel,
+          show.intercept = TRUE,
+          show.se = TRUE,
+          show.stat = TRUE,
+          show.r2 = TRUE,
+          show.ci = FALSE)
+
+```
+
+```{r} 
+# Extract Coefficients
+summary(log_model$finalModel)$coefficients
+```
+
+```{r}
+# Obtain Odds Ratios
+coefficients <- coef(log_model$finalModel)
+odds_ratios <- exp(coefficients)
+
+round(odds_ratios, 3)
+```
+
+## **Task 6 : Model Training - KNN**
+```{r}
+# Train KNN using scaled data
+knn_model <- train(
+  CVD ~ .,
+  data = train_scaled,
+  method = "knn",
+  trControl = ctrl,
+  tuneGrid = expand.grid(k = seq(1, 21, by = 2))
+)
+
+
+``` 
+
+### **View the model summary**
+```{r}
+knn_model$results
+```
+
+
+
+### **View the best tuned model**
+```{r}
+knn_model$bestTune
+```
+
+
+### **Plot Accuracy vs K**
+```{r}
+plot(knn_model, main = "KNN: Accuracy vs k")
+```
+
+
+
+## **Task 7 : Model Training -SVM**
+```{r}
+# Training SVM using scaled data
+svm_model <- train(
+  CVD ~.,
+  data = train_scaled,
+  method = "svmRadial",
+  trControl = ctrl,
+  tuneGrid = expand.grid(
+    C = c(0.25, 0.5, 1, 2, 4),
+    sigma = c(0.01, 0.05, 0.1, 0.5)
+  )
+)
+``` 
+
+
+## **View the Model Summary**
+```{r}
+svm_model$results
+```
+
+
+
+
+### **View Optimal Parameters**
+```{r}
+svm_model$bestTune
+```
+
+### **Plot the Tuning Model**
+```{r}
+plot(svm_model, main = "SVM: ROC vs Parameters")
+```
+
+
+
+## **Task 8 : Model Training - Random Forest**
+```{r}
+rf_model <- train(
+  CVD ~ .,
+  data = train_data,
+  method = "rf",
+  trControl = ctrl,
+  tuneGrid = expand.grid(mtry = c(2, 4, 6, 8)),
+  ntree = 500
+)
+```
+
+
+### **View the Model Summary**
+```{r}
+rf_model$results
+```
+
+### **View Optimal mtry**
+```{r}
+rf_model$bestTune
+```
+
+
+
+## **Variable Importance**
+```{r}
+importance <- varImp(rf_model)
+print(importance)
+
+plot(importance, main = "Random Forest: Variable Importance")
+```
+
+
+
+## **Task 9 : Model Evaluation and Comparison**
+### **Predictions for all models**
+```{r}
+# Logistic Regression
+log_pred  <- predict(log_model, test_data)
+log_probs <- predict(log_model, test_data, type = "prob")
+
+# KNN (scaled)
+knn_pred  <- predict(knn_model, test_scaled)
+knn_probs <- predict(knn_model, test_scaled, type = "prob")
+
+# SVM (scaled)
+svm_pred  <- predict(svm_model, test_scaled)
+svm_probs <- predict(svm_model, test_scaled, type = "prob")
+
+# Random Forest
+rf_pred  <- predict(rf_model, test_data)
+rf_probs <- predict(rf_model, test_data, type = "prob")
+```
+
+
+### **Confusion Matrices**
+```{r}
+# Convert test labels to factor with correct levels
+test_data$CVD <- factor(test_data$CVD, levels = c("No", "Yes"))
+test_scaled$CVD <- factor(test_scaled$CVD, levels = c("No", "Yes"))
+```
+
+```{r}
+# Logistic
+cm_log <- confusionMatrix(log_pred, test_data$CVD, positive = "Yes")
+cm_log
+```
+
+```{r}
+# KNN
+cm_knn <- confusionMatrix(knn_pred, test_scaled$CVD, positive = "Yes")
+cm_knn
+```
+
+```{r}
+# SVM
+cm_svm <- confusionMatrix(svm_pred, test_scaled$CVD, positive = "Yes")
+cm_svm
+```
+
+
+```{r}
+# Random Forest
+cm_rf <- confusionMatrix(rf_pred, test_data$CVD, positive = "Yes")
+cm_rf
+```
+
+
+### **ROC Curvess**
+```{r}
+log_roc <- roc(test_data$CVD, log_probs$Yes)
+knn_roc <- roc(test_scaled$CVD, knn_probs$Yes)
+svm_roc <- roc(test_scaled$CVD, svm_probs$Yes)
+rf_roc  <- roc(test_data$CVD, rf_probs$Yes)
+
+# Plot all
+plot(log_roc, col = "blue", lwd = 2, main = "ROC Curve Comparison")
+lines(knn_roc, col = "green", lwd = 2)
+lines(svm_roc, col = "red", lwd = 2)
+lines(rf_roc, col = "purple", lwd = 2)
+
+legend("bottomright",
+       legend = c("Logistic", "KNN", "SVM", "Random Forest"),
+       col = c("blue", "green", "red", "purple"),
+       lwd = 2)
+```
+
+
+### **AUC Comparison**
+```{r}
+auc_values <- data.frame(
+  Model = c("Logistic", "KNN", "SVM", "Random Forest"),
+  AUC = c(
+    as.numeric(auc(log_roc)),
+    as.numeric(auc(knn_roc)),
+    as.numeric(auc(svm_roc)),
+    as.numeric(auc(rf_roc))
+  )
+)
+
+print(auc_values)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

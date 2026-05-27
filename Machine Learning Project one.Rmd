@@ -1,0 +1,210 @@
+---
+title: "Logistic Regression for CVD Prediction"
+author: "ELiud Mule"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set Working Directory 
+```{r}
+ #setwd("C:/Users/user/Desktop/Professional DS Mule/R")
+```
+
+## ** Task 1: Data Import and Exploration (10 Marks)**
+### **Load libraries** 
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(psych)
+library(caret)      #for machine learning models
+library(psych)      #for description of data
+library(ggplot2)    #for data visualization
+library(caretEnsemble) # enables creation of ensemble models
+library(tidyverse)    #for data manipulation 
+library(mlbench)     #for benchmarking ML models
+library(flextable)     #to create and style tables
+library(mltools)                
+library(tictoc)       #for timing code execution
+library(ROSE)          #for random sampling
+library(ROCR)     #for ROC curve
+library(smotefamily)     # for oversampling
+
+```
+
+
+### **Import the dataset**
+```{r}
+data <- read.csv("medical_data.csv")
+head(data)
+
+
+```
+
+
+### **Explore the dataset**
+```{r}
+str(data)
+describe(data)
+```
+ 
+
+### **Check for missing values per variable**
+```{r}
+data.frame(sapply(data, function(x) sum(is.na(x))))
+```
+
+```{r}
+library(sjmisc)
+frq(data, CVD)
+```
+
+
+
+### **Visualize the distribution of the target variable CVD**
+```{r}
+ggplot(data, aes(x = CVD,fill = CVD)) +
+  geom_bar(color = "black") +
+  labs(title = "Distribution of CVD", x = "CVD Status", y = "Count") +
+  theme_minimal()
+```
+
+##  **Task 2: Data Preprocessing (15 Marks)**
+
+### **Convert categorical variables to factors**
+```{r}
+data$gender <- as.factor(data$gender)
+data$smoking <- as.factor(data$smoking)
+data$alcohol <- as.factor(data$alcohol)
+data$urban_residence <- as.factor(data$urban_residence)
+data$family_history <- as.factor(data$family_history)
+data$medication_adherence <- as.factor(data$medication_adherence)
+```
+
+
+
+## ** Task 3: Data Partitioning (10 Marks)**
+### **Split the dataset into training and testing sets**
+```{r}
+set.seed(2026)
+train_index <- createDataPartition(data$CVD, p = 0.7, list = FALSE)
+train_data <- data[train_index, ]
+test_data <- data[-train_index, ]
+```
+
+
+###  **Class distribution in both training sets**
+```{r}
+dim(train_data)
+dim(test_data)
+
+```
+
+
+
+
+## ** Task 4: Model Training with trainControl (20 Marks)**
+### **Set up trainControl for 10-fold cross-validation**
+```{r}
+train_control <- trainControl(method = "cv", number = 10, classProbs = TRUE, summaryFunction = twoClassSummary)
+
+```
+
+### **Train the logistic regression model**
+```{r}
+library(tictoc)
+tic()
+set.seed(123) # Set seed for reproducibility
+model <- train(CVD ~ ., data = train_data,
+        method = "glm",
+        preProcess = c("scale","center"),
+        trControl = train_control)
+toc()
+```
+
+
+### **View Model**
+```{r}
+summary(model)
+```
+
+
+### **View the results above**
+```{r}
+library(sjPlot)
+tab_model(model$finalModel,
+          show.intercept = TRUE,
+         # show.ci = FALSE,
+          show.se = TRUE,
+          show.stat = TRUE,
+          show.r2 = TRUE)
+```
+
+
+
+## ** Task 5: Model Evaluation (25 Marks)**
+### **Make predictions on the test set**
+```{r}
+pred_class <- predict(model,test_data)
+pred_prob <- predict(model, test_data, type = "prob")
+
+```
+
+
+```{r}
+test_data$CVD <- factor(test_data$CVD,levels = c("No", "Yes"))
+pred_class <- factor(pred_class, levels = c("No", "Yes"))
+
+```
+
+### **Confusion Matrix**
+```{r}
+conf_matrix <- confusionMatrix(pred_class, test_data$CVD,positive = "Yes")
+print(conf_matrix)
+
+```
+
+
+### **plot ROC curve and find area under the curve**
+```{r}
+library(pROC)
+roc_obj <- roc(test_data$CVD, pred_prob[, "Yes"])
+plot(roc_obj, col = "blue", main = "ROC Curve for CVD Prediction
+",lwd = 2)
+grid()
+auc_value <- auc(roc_obj)
+print(paste("AUC:", auc_value))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
